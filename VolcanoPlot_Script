@@ -1,0 +1,82 @@
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+## creating volcano plots 
+# adjusting thresholds and labels log2fc
+
+## SETTING PARAMETERS 
+# select dataframe 
+df <- res_annot2 
+# choosing padj cutoff
+padj_cutoff <- 0.05
+# choosing log2fc cutoff
+log2fc_cutoff <- 0.5 
+# Number of top up/down-regulated genes by log2fc
+n_top <- 500
+col_gene_names <- "hgnc_symbol" 
+
+# remove rows that contain NA values
+df <- df[complete.cases(df), ] 
+# remove empty values
+df <- df[df[,col_gene_names] != "",]  
+  
+# find top upregulated genes 
+top_up_vector <-  df %>% 
+  filter(padj < padj_cutoff) %>%  # filter by padj cutoff 
+  slice_max(log2FoldChange, n = n_top) %>% # select top upregulated by log2fc
+  pull(col_gene_names) # column with gene names
+  
+# find top downregulated genes
+top_down_vector <- df %>%
+  filter(padj < padj_cutoff) %>%  # filter by padj cutoff
+  slice_min(log2FoldChange, n = n_top) %>%  # select top downregulated by log2fc
+  pull(col_gene_names) # Column with gene names
+  
+# create and index for top upregulated and downregulated
+idx_top_up <- which(df[,col_gene_names] %in% top_up_vector)
+idx_top_down <- which(df[,col_gene_names] %in% top_down_vector)
+# add a column of NAs
+df$tag <- "Unperturbed"
+# if log2Foldchange set as "UP" 
+df$tag[df$log2FoldChange > log2fc_cutoff & df$padj < padj_cutoff] <- "Up-regulated"
+# if log2Foldchange set as "DOWN"
+df$tag[df$log2FoldChange < -log2fc_cutoff & df$padj < padj_cutoff] <- "Down-regulated"
+  
+# Create a new column "Label" that will contain the name of genes desired
+df[,col_gene_names] <- as.character(df[,col_gene_names])
+df$Label <- NA
+df$Label[c(idx_top_up, idx_top_down)] <- df[,col_gene_names][c(idx_top_up,idx_top_down)]  
+df$Label[df$tag == "Unperturbed"] <- NA
+
+
+colors_v_plot <- c("#277EFF","#8B8878","#FF4B4B")
+names(colors_v_plot) <- c("Down-regulated", "Unperturbed", "Up-regulated")
+
+# plotting volcanoplots (log2fc)
+pdf("./Figures/volcano_plot.pdf"
+    , width = 8, height = 7.4)
+  
+ggplot(data = df, aes(x= log2FoldChange, y= -log10(padj), col= tag , label = Label)) +
+      geom_point(size = 0.7) +
+      theme_classic() +
+      geom_text_repel(color = "black") +
+      # set colors  
+      scale_color_manual(values = colors_v_plot) +
+      # set threshold lines 
+      
+      geom_vline(xintercept=c(-log2fc_cutoff, log2fc_cutoff), col="#51696d", linetype = "dashed") +
+      geom_hline(yintercept=-log10(padj_cutoff), col="#51696d", linetype = "dashed") +
+      # labels 
+      labs(x = "log2FoldChange",
+           y = "-log10 padj",
+           title = "Differentially Expressed Genes ",
+           subtitle = paste("Top ", n_top, " selected using log2fc", sep = ""),
+           caption = paste("Number of Up-regulated =", sum(df$tag == "Up-regulated"), "\n",
+                           "Number of Down-regulated =", sum(df$tag == "Down-regulated"), "\n",
+                           "Number of Unperturbed =", sum(df$tag == "Unperturbed"),"\n",
+                           "cutoff = log2fc (+/-)", log2fc_cutoff, "padj <", padj_cutoff, sep = " "),
+           color = "") +
+      # set scale x labels
+      scale_x_discrete(limits = c(round(min(df$log2FoldChange)):round(max(df$log2FoldChange))))
+
+dev.off()
